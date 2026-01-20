@@ -20,6 +20,7 @@ class ChannelState:
     repo: Path | None
     history: Deque[tuple[str, str]]
     enabled_until: datetime | None
+    auto_verify: bool
 
 
 load_dotenv()
@@ -37,6 +38,9 @@ CODEX_DEFAULT_LANGUAGE = os.getenv("CODEX_DEFAULT_LANGUAGE", "text")
 MAX_SNAPSHOT_FILES = int(os.getenv("MAX_SNAPSHOT_FILES", "200"))
 MAX_SNAPSHOT_FILE_BYTES = int(os.getenv("MAX_SNAPSHOT_FILE_BYTES", "200000"))
 MAX_SNAPSHOT_TOTAL_BYTES = int(os.getenv("MAX_SNAPSHOT_TOTAL_BYTES", "1000000"))
+AUTO_VERIFY_DEFAULT = os.getenv("AUTO_VERIFY_DEFAULT", "false").lower() in {"1", "true", "yes"}
+AUTO_VERIFY_COMMAND = os.getenv("AUTO_VERIFY_COMMAND", "")
+AUTO_VERIFY_TIMEOUT = int(os.getenv("AUTO_VERIFY_TIMEOUT", "120"))
 
 if not DISCORD_TOKEN:
     raise SystemExit("DISCORD_TOKEN is required")
@@ -59,7 +63,12 @@ channel_state: dict[int, ChannelState] = {}
 def _get_state(channel_id: int) -> ChannelState:
     state = channel_state.get(channel_id)
     if state is None:
-        state = ChannelState(repo=None, history=deque(maxlen=MAX_HISTORY_TURNS), enabled_until=None)
+        state = ChannelState(
+            repo=None,
+            history=deque(maxlen=MAX_HISTORY_TURNS),
+            enabled_until=None,
+            auto_verify=AUTO_VERIFY_DEFAULT,
+        )
         channel_state[channel_id] = state
     return state
 
@@ -276,6 +285,29 @@ def _text_to_file(text: str, filename: str) -> discord.File:
     return discord.File(io.BytesIO(data), filename=filename)
 
 
+def _run_auto_verify(repo: Path) -> tuple[str, int] | None:
+    if not AUTO_VERIFY_COMMAND:
+        return ("検証コマンドが未設定です。AUTO_VERIFY_COMMAND を設定してください。", 2)
+    try:
+        result = subprocess.run(
+            AUTO_VERIFY_COMMAND,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=str(repo),
+            timeout=AUTO_VERIFY_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return ("検証がタイムアウトしました。", 124)
+    except OSError:
+        return ("検証コマンドの実行に失敗しました。", 125)
+
+    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
+    if not output:
+        output = "出力はありませんでした。"
+    return (output, result.returncode)
+
+
 def _language_to_extension(language: str | None) -> str:
     if not language:
         return "txt"
@@ -480,6 +512,7 @@ async def on_message(message: discord.Message) -> None:
     diff_text = _get_git_diff(state.repo)
     if not diff_text:
         diff_text = _build_snapshot_diff(snapshot_before, state.repo)
+    has_changes = bool(diff_text)
 
     if plain_text:
         if len(plain_text) > MAX_OUTPUT_CHARS:
@@ -518,6 +551,22 @@ async def on_message(message: discord.Message) -> None:
         else:
             for chunk in chunks:
                 await message.channel.send(chunk)
+
+    if state.auto_verify and has_changes:
+        verify_result = _run_auto_verify(state.repo)
+        if verify_result:
+            verify_text, verify_code = verify_result
+            header = f"検証結果 (exit={verify_code})"
+            message_body = f"{header}\n{verify_text}"
+            if len(message_body) > MAX_OUTPUT_CHARS:
+                filename = _build_attachment_name("verify_output", "txt")
+                await message.channel.send(
+                    "検証結果が長いためファイルで送信します。",
+                    file=_text_to_file(message_body, filename),
+                )
+            else:
+                for chunk in _split_message(message_body, MAX_OUTPUT_CHARS):
+                    await message.channel.send(chunk)
 
 
 class RepoSelect(discord.ui.Select):
@@ -597,6 +646,32 @@ async def disable(ctx: discord.ApplicationContext) -> None:
     state = _get_state(ctx.channel.id)
     state.enabled_until = None
     await ctx.respond("無効化しました。")
+
+
+@codex.command(name="verify", description="Toggle auto verification after Codex runs")
+@discord.option("enabled", bool, description="自動検証を有効化する", required=False)
+async def verify(ctx: discord.ApplicationContext, enabled: bool | None = None) -> None:
+    if not _is_allowed_channel(ctx.channel.id if ctx.channel else None):
+        await ctx.respond("このチャンネルでは使用できません。", ephemeral=True)
+        return
+    member = ctx.user if isinstance(ctx.user, discord.Member) else None
+    if not _is_allowed_role(member):
+        await ctx.respond("必要なロールがありません。", ephemeral=True)
+        return
+    if not ctx.channel:
+        await ctx.respond("チャンネルが見つかりません。", ephemeral=True)
+        return
+    state = _get_state(ctx.channel.id)
+    if enabled is None:
+        state.auto_verify = not state.auto_verify
+    else:
+        state.auto_verify = enabled
+
+    status = "有効" if state.auto_verify else "無効"
+    if state.auto_verify and not AUTO_VERIFY_COMMAND:
+        await ctx.respond(f"自動検証を{status}にしましたが、AUTO_VERIFY_COMMAND が未設定です。", ephemeral=True)
+        return
+    await ctx.respond(f"自動検証を{status}にしました。", ephemeral=True)
 
 
 @repo.command(name="current", description="Show the current repo")

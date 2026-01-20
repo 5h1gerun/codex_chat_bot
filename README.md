@@ -106,6 +106,9 @@ MAX_HISTORY_TURNS=6
 MAX_OUTPUT_CHARS=1900
 CODEX_LANGUAGE=ja
 CODEX_DEFAULT_LANGUAGE=python
+AUTO_VERIFY_DEFAULT=false
+AUTO_VERIFY_COMMAND=pytest -q && ruff .
+AUTO_VERIFY_TIMEOUT=120
 ```
 
 ------------------------------------------------------------------------
@@ -136,6 +139,12 @@ python bot.py
 ```
 
 で即座に無効化されます。
+
+``` text
+/codex verify enabled:true
+```
+
+-   Codex実行後に検証コマンドを自動実行します（`AUTO_VERIFY_COMMAND` で設定）
 
 ------------------------------------------------------------------------
 
