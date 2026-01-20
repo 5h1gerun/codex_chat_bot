@@ -3,6 +3,22 @@ import shlex
 import subprocess
 import shutil
 from pathlib import Path
+from datetime import datetime, timezone
+
+
+def _write_error_log(cwd: Path, label: str, content: str) -> str:
+    logs_dir = cwd / "codex_error_logs"
+    try:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return ""
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    path = logs_dir / f"codex_error_{timestamp}.txt"
+    try:
+        path.write_text(f"{label}\n\n{content}".strip() + "\n", encoding="utf-8")
+    except OSError:
+        return ""
+    return str(path)
 
 
 def run_codex(prompt: str, cwd: Path) -> str:
@@ -54,13 +70,36 @@ def run_codex(prompt: str, cwd: Path) -> str:
             cwd=str(cwd),
             timeout=timeout_s,
         )
-    except subprocess.TimeoutExpired:
-        return "Codexの実行がタイムアウトしました。リクエストを小さくしてください。"
-    except OSError:
+    except subprocess.TimeoutExpired as exc:
+        stderr = exc.stderr or ""
+        stdout = exc.stdout or ""
+        cmd_text = shlex.join(cmd)
+        log_text = (
+            f"[timeout]\ncmd: {cmd_text}\n"
+            f"stdout:\n{stdout}\n\nstderr:\n{stderr}\n"
+        )
+        log_path = _write_error_log(cwd, "Codex timeout", log_text)
+        if log_path:
+            return f"Codexの実行がタイムアウトしました。エラーログ: {log_path}"
+        return "Codexの実行がタイムアウトしました。エラーログの出力に失敗しました。"
+    except OSError as exc:
+        cmd_text = shlex.join(cmd)
+        log_text = f"[oserror]\ncmd: {cmd_text}\nerror: {exc}\n"
+        log_path = _write_error_log(cwd, "Codex start failed", log_text)
+        if log_path:
+            return f"Codexの起動に失敗しました。エラーログ: {log_path}"
         return "Codexの起動に失敗しました。CODEX_PATHと権限を確認してください。"
 
     if result.returncode != 0:
-        return "Codexの実行に失敗しました。ログを確認してください。"
+        cmd_text = shlex.join(cmd)
+        log_text = (
+            f"[nonzero return]\ncmd: {cmd_text}\nreturncode: {result.returncode}\n"
+            f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}\n"
+        )
+        log_path = _write_error_log(cwd, "Codex execution failed", log_text)
+        if log_path:
+            return f"Codexの実行に失敗しました。エラーログ: {log_path}"
+        return "Codexの実行に失敗しました。エラーログの出力に失敗しました。"
 
     output = result.stdout.strip()
     if not output:

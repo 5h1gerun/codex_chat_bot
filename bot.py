@@ -483,6 +483,38 @@ def _summarize_diff(diff_text: str) -> tuple[list[str], int, int]:
     return sorted(set(files)), added, removed
 
 
+def _single_line(text: str) -> str:
+    return " ".join(text.strip().split())
+
+
+def _truncate_text(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    if max_len <= 3:
+        return text[:max_len]
+    return f"{text[: max_len - 3]}..."
+
+
+def _summarize_output(
+    plain_text: str,
+    code_blocks: list[tuple[str, str]],
+    diff_text: str | None,
+) -> str:
+    lines = [line.strip() for line in plain_text.splitlines() if line.strip()]
+    if lines:
+        summary = " / ".join(lines[:2])
+    else:
+        summary = "コード/差分のみ"
+    tags: list[str] = []
+    if code_blocks:
+        tags.append("コードあり")
+    if diff_text:
+        tags.append("差分あり")
+    if tags:
+        summary = f"{summary} ({', '.join(tags)})"
+    return _truncate_text(_single_line(summary), 200)
+
+
 async def _send_webhook(embed: discord.Embed) -> None:
     if not WEBHOOK_ENABLED or not WEBHOOK_URL:
         return
@@ -545,7 +577,9 @@ async def on_message(message: discord.Message) -> None:
     state.history.append((prompt, output))
 
     plain_text, code_blocks = _extract_code_blocks(output)
-    diff_text = _get_git_diff(state.repo)
+    git_diff = _get_git_diff(state.repo)
+    diff_source = "git" if git_diff is not None else "snapshot"
+    diff_text = git_diff
     if not diff_text:
         diff_text = _build_snapshot_diff(snapshot_before, state.repo)
     has_changes = bool(diff_text)
@@ -595,7 +629,7 @@ async def on_message(message: discord.Message) -> None:
 
     verify_summary = "未実行"
     if state.auto_verify and has_changes:
-        verify_result = _run_auto_verify(state.repo)
+        verify_result = await asyncio.to_thread(_run_auto_verify, state.repo)
         if verify_result:
             verify_text, verify_code = verify_result
             verify_summary = f"exit={verify_code}"
@@ -627,11 +661,13 @@ async def on_message(message: discord.Message) -> None:
         else:
             file_list = "なし"
         change_summary = f"{file_count} files, +{added_lines} -{removed_lines}"
+        prompt_summary = _truncate_text(_single_line(prompt), 200) or "なし"
+        response_summary = _summarize_output(plain_text, code_blocks, diff_text)
         jst = timezone(timedelta(hours=9))
         timestamp = datetime.now(jst)
         embed = discord.Embed(
             title="Codex 実行レポート",
-            description="変更内容と検証結果をまとめました。",
+            description=f"依頼: {prompt_summary}\n変更: {change_summary}\n検証: {verify_summary}",
             color=0x5DADEC,
             timestamp=timestamp,
         )
@@ -644,6 +680,8 @@ async def on_message(message: discord.Message) -> None:
         embed.add_field(name="変更ファイル", value=file_list, inline=False)
         embed.add_field(name="検証", value=verify_summary, inline=True)
         embed.add_field(name="実行時間", value=f"{elapsed_s:.1f}s", inline=True)
+        embed.add_field(name="差分取得", value=diff_source, inline=True)
+        embed.add_field(name="応答サマリ", value=response_summary, inline=False)
         await _send_webhook(embed)
 
 
