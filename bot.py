@@ -636,6 +636,7 @@ async def on_message(message: discord.Message) -> None:
             timestamp=timestamp,
         )
         embed.set_author(name="Codex Runner")
+        embed.set_thumbnail(url=message.author.display_avatar.url)
         embed.add_field(name="実行者", value=message.author.display_name, inline=True)
         embed.add_field(name="チャンネル", value=f"#{channel_name}", inline=True)
         embed.add_field(name="repo", value=state.repo.name, inline=True)
