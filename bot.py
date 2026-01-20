@@ -103,6 +103,15 @@ def _available_repos() -> list[Path]:
     return sorted(repos)
 
 
+def _filter_repos(repos: list[Path], prefix: str | None) -> list[Path]:
+    if not prefix:
+        return repos
+    trimmed = prefix.strip()
+    if not trimmed:
+        return repos
+    return [repo for repo in repos if repo.name.startswith(trimmed)]
+
+
 def _safe_repo_path(selected_name: str) -> Path | None:
     candidate = (WORKSPACE_ROOT_PATH / selected_name).resolve()
     if candidate.is_dir() and candidate.is_relative_to(WORKSPACE_ROOT_PATH):
@@ -610,7 +619,8 @@ async def current(ctx: discord.ApplicationContext) -> None:
 
 
 @repo.command(name="list", description="Select a repo from workspace")
-async def list_repos(ctx: discord.ApplicationContext) -> None:
+@discord.option("prefix", str, description="先頭一致フィルタ（例: app-）", required=False)
+async def list_repos(ctx: discord.ApplicationContext, prefix: str | None = None) -> None:
     if not _is_allowed_channel(ctx.channel.id if ctx.channel else None):
         await ctx.respond("このチャンネルでは使用できません。", ephemeral=True)
         return
@@ -621,9 +631,12 @@ async def list_repos(ctx: discord.ApplicationContext) -> None:
     if not ctx.channel:
         await ctx.respond("チャンネルが見つかりません。", ephemeral=True)
         return
-    repos = _available_repos()
+    repos = _filter_repos(_available_repos(), prefix)
     if not repos:
-        await ctx.respond("workspaceにrepoが見つかりません。", ephemeral=True)
+        if prefix:
+            await ctx.respond(f"`{prefix}` に一致するrepoが見つかりません。", ephemeral=True)
+        else:
+            await ctx.respond("workspaceにrepoが見つかりません。", ephemeral=True)
         return
     await ctx.respond("repoを選択してください。", view=RepoView(repos), ephemeral=True)
 
