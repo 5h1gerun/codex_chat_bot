@@ -58,9 +58,9 @@ Botは通常は沈黙し、`/codex enable` された時だけ反応します。\
     ├ requirements.txt
     ├ README.md
     └ workspaces/
-        ├ Web_Discord_Server/
-        ├ music_bot/
-        └ screenshot_poke/
+        ├ ～～～～/
+        ├ ～～～～/
+        └ ～～～～/
 
 ------------------------------------------------------------------------
 
@@ -78,8 +78,8 @@ Botは通常は沈黙し、`/codex enable` された時だけ反応します。\
 ## 1. 仮想環境
 
 ``` bash
-python3 -m venv Discbot
-source Discbot/bin/activate
+python3 -m venv ～～～～
+source ～～～～/bin/activate
 ```
 
 ## 2. ライブラリ
@@ -119,7 +119,7 @@ WEBHOOK_TIMEOUT=10
 # ▶ 起動
 
 ``` bash
-source Discbot/bin/activate
+source ～～～～/bin/activate
 python bot.py
 ```
 
@@ -262,8 +262,3 @@ python bot.py
 -   `GUILD_ID` を指定するとスラッシュコマンドの反映が早くなります
 
 ------------------------------------------------------------------------
-
-# 👤 Author
-
-shigerun\
-Discord Bot / Raspberry Pi / AI Automation
