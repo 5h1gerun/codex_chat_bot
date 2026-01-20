@@ -58,9 +58,9 @@ Botは通常は沈黙し、`/codex enable` された時だけ反応します。\
     ├ requirements.txt
     ├ README.md
     └ workspaces/
-        ├ Web_Discord_Server/
-        ├ music_bot/
-        └ screenshot_poke/
+        ├ ～～～～/
+        ├ ～～～～/
+        └ ～～～～/
 
 ------------------------------------------------------------------------
 
@@ -78,8 +78,8 @@ Botは通常は沈黙し、`/codex enable` された時だけ反応します。\
 ## 1. 仮想環境
 
 ``` bash
-python3 -m venv Discbot
-source Discbot/bin/activate
+python3 -m venv ～～～～
+source ～～～～/bin/activate
 ```
 
 ## 2. ライブラリ
@@ -109,6 +109,9 @@ CODEX_DEFAULT_LANGUAGE=python
 AUTO_VERIFY_DEFAULT=false
 AUTO_VERIFY_COMMAND=pytest -q && ruff .
 AUTO_VERIFY_TIMEOUT=120
+WEBHOOK_ENABLED=false
+WEBHOOK_URL=https://discord.com/api/webhooks/xxxx/xxxx
+WEBHOOK_TIMEOUT=10
 ```
 
 ------------------------------------------------------------------------
@@ -116,7 +119,7 @@ AUTO_VERIFY_TIMEOUT=120
 # ▶ 起動
 
 ``` bash
-source Discbot/bin/activate
+source ～～～～/bin/activate
 python bot.py
 ```
 
@@ -145,6 +148,11 @@ python bot.py
 ```
 
 -   Codex実行後に検証コマンドを自動実行します（`AUTO_VERIFY_COMMAND` で設定）
+
+### Webhook通知（任意）
+
+-   `WEBHOOK_ENABLED=true` と `WEBHOOK_URL` を設定すると、Codex実行後に変更サマリを通知します。
+-   通知にはコードブロックやdiff全文は含めません。
 
 ------------------------------------------------------------------------
 
@@ -254,8 +262,3 @@ python bot.py
 -   `GUILD_ID` を指定するとスラッシュコマンドの反映が早くなります
 
 ------------------------------------------------------------------------
-
-# 👤 Author
-
-shigerun\
-Discord Bot / Raspberry Pi / AI Automation
