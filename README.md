@@ -109,6 +109,9 @@ CODEX_DEFAULT_LANGUAGE=python
 AUTO_VERIFY_DEFAULT=false
 AUTO_VERIFY_COMMAND=pytest -q && ruff .
 AUTO_VERIFY_TIMEOUT=120
+WEBHOOK_ENABLED=false
+WEBHOOK_URL=https://discord.com/api/webhooks/xxxx/xxxx
+WEBHOOK_TIMEOUT=10
 ```
 
 ------------------------------------------------------------------------
@@ -145,6 +148,11 @@ python bot.py
 ```
 
 -   Codex実行後に検証コマンドを自動実行します（`AUTO_VERIFY_COMMAND` で設定）
+
+### Webhook通知（任意）
+
+-   `WEBHOOK_ENABLED=true` と `WEBHOOK_URL` を設定すると、Codex実行後に変更サマリを通知します。
+-   通知にはコードブロックやdiff全文は含めません。
 
 ------------------------------------------------------------------------
 

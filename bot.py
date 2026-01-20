@@ -3,12 +3,14 @@ import difflib
 import io
 import os
 import subprocess
+import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Deque
 
+import aiohttp
 import discord
 from dotenv import load_dotenv
 
@@ -41,6 +43,9 @@ MAX_SNAPSHOT_TOTAL_BYTES = int(os.getenv("MAX_SNAPSHOT_TOTAL_BYTES", "1000000"))
 AUTO_VERIFY_DEFAULT = os.getenv("AUTO_VERIFY_DEFAULT", "false").lower() in {"1", "true", "yes"}
 AUTO_VERIFY_COMMAND = os.getenv("AUTO_VERIFY_COMMAND", "")
 AUTO_VERIFY_TIMEOUT = int(os.getenv("AUTO_VERIFY_TIMEOUT", "120"))
+WEBHOOK_ENABLED = os.getenv("WEBHOOK_ENABLED", "false").lower() in {"1", "true", "yes"}
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_TIMEOUT = int(os.getenv("WEBHOOK_TIMEOUT", "10"))
 
 if not DISCORD_TOKEN:
     raise SystemExit("DISCORD_TOKEN is required")
@@ -461,6 +466,35 @@ def _extract_code_blocks(text: str) -> tuple[str, list[tuple[str, str]]]:
     return "\n".join(out_lines).strip(), blocks
 
 
+def _summarize_diff(diff_text: str) -> tuple[list[str], int, int]:
+    files: list[str] = []
+    added = 0
+    removed = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/"):
+            path = line[6:].strip()
+            if path and path != "/dev/null":
+                files.append(path)
+            continue
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return sorted(set(files)), added, removed
+
+
+async def _send_webhook(embed: discord.Embed) -> None:
+    if not WEBHOOK_ENABLED or not WEBHOOK_URL:
+        return
+    try:
+        timeout = aiohttp.ClientTimeout(total=WEBHOOK_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            webhook = discord.Webhook.from_url(WEBHOOK_URL, session=session)
+            await webhook.send(embed=embed)
+    except aiohttp.ClientError:
+        return
+
+
 @bot.event
 async def on_ready() -> None:
     if GUILD_ID:
@@ -503,8 +537,10 @@ async def on_message(message: discord.Message) -> None:
 
     snapshot_before = _snapshot_files(state.repo)
     history_prompt = _build_prompt(state.history, prompt)
+    start_time = time.monotonic()
     async with message.channel.typing():
         output = await asyncio.to_thread(run_codex, history_prompt, state.repo)
+    elapsed_s = time.monotonic() - start_time
 
     state.history.append((prompt, output))
 
@@ -513,6 +549,11 @@ async def on_message(message: discord.Message) -> None:
     if not diff_text:
         diff_text = _build_snapshot_diff(snapshot_before, state.repo)
     has_changes = bool(diff_text)
+    files_changed: list[str] = []
+    added_lines = 0
+    removed_lines = 0
+    if diff_text:
+        files_changed, added_lines, removed_lines = _summarize_diff(diff_text)
 
     if plain_text:
         if len(plain_text) > MAX_OUTPUT_CHARS:
@@ -552,10 +593,12 @@ async def on_message(message: discord.Message) -> None:
             for chunk in chunks:
                 await message.channel.send(chunk)
 
+    verify_summary = "未実行"
     if state.auto_verify and has_changes:
         verify_result = _run_auto_verify(state.repo)
         if verify_result:
             verify_text, verify_code = verify_result
+            verify_summary = f"exit={verify_code}"
             header = f"検証結果 (exit={verify_code})"
             message_body = f"{header}\n{verify_text}"
             if len(message_body) > MAX_OUTPUT_CHARS:
@@ -567,6 +610,40 @@ async def on_message(message: discord.Message) -> None:
             else:
                 for chunk in _split_message(message_body, MAX_OUTPUT_CHARS):
                     await message.channel.send(chunk)
+    elif state.auto_verify:
+        verify_summary = "変更なしのため未実行"
+    else:
+        verify_summary = "無効"
+
+    if WEBHOOK_ENABLED and WEBHOOK_URL:
+        channel_name = getattr(message.channel, "name", "unknown")
+        file_count = len(files_changed)
+        if file_count:
+            top_files = files_changed[:3]
+            remainder = file_count - len(top_files)
+            file_list = ", ".join(top_files)
+            if remainder > 0:
+                file_list = f"{file_list} (+{remainder} files)"
+        else:
+            file_list = "なし"
+        change_summary = f"{file_count} files, +{added_lines} -{removed_lines}"
+        jst = timezone(timedelta(hours=9))
+        timestamp = datetime.now(jst)
+        embed = discord.Embed(
+            title="Codex 実行レポート",
+            description="変更内容と検証結果をまとめました。",
+            color=0x5DADEC,
+            timestamp=timestamp,
+        )
+        embed.set_author(name="Codex Runner")
+        embed.add_field(name="実行者", value=message.author.display_name, inline=True)
+        embed.add_field(name="チャンネル", value=f"#{channel_name}", inline=True)
+        embed.add_field(name="repo", value=state.repo.name, inline=True)
+        embed.add_field(name="変更概要", value=change_summary, inline=True)
+        embed.add_field(name="変更ファイル", value=file_list, inline=False)
+        embed.add_field(name="検証", value=verify_summary, inline=True)
+        embed.add_field(name="実行時間", value=f"{elapsed_s:.1f}s", inline=True)
+        await _send_webhook(embed)
 
 
 class RepoSelect(discord.ui.Select):
