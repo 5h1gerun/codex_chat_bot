@@ -9,11 +9,31 @@ from config import (
     MAX_SNAPSHOT_FILES,
     MAX_SNAPSHOT_FILE_BYTES,
     MAX_SNAPSHOT_TOTAL_BYTES,
+    WORKSPACE_ROOT_PATH,
 )
 
 
-def snapshot_files(repo: Path) -> dict[str, str]:
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        try:
+            resolved = path.absolute()
+        except OSError:
+            return False
+    try:
+        return resolved.is_relative_to(root)
+    except AttributeError:
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+
+def snapshot_files(repo: Path) -> tuple[dict[str, str], set[str]]:
     snapshot: dict[str, str] = {}
+    external_paths: set[str] = set()
     total_bytes = 0
     file_count = 0
     skip_dirs = {".git", ".venv", "venv", "__pycache__", "node_modules"}
@@ -39,17 +59,26 @@ def snapshot_files(repo: Path) -> dict[str, str]:
             except UnicodeDecodeError:
                 text = data.decode("utf-8", errors="ignore")
             rel_path = str(path.relative_to(repo))
+            if not _is_within_root(path, WORKSPACE_ROOT_PATH):
+                external_paths.add(rel_path)
             snapshot[rel_path] = text
             total_bytes += len(data)
             file_count += 1
 
-    return snapshot
+    return snapshot, external_paths
 
 
-def build_snapshot_diff(before: dict[str, str], repo: Path) -> str:
-    after = snapshot_files(repo)
+def build_snapshot_diff(
+    before: dict[str, str],
+    before_external: set[str],
+    repo: Path,
+) -> str:
+    after, after_external = snapshot_files(repo)
+    external_paths = before_external | after_external
     diffs: list[str] = []
     for path in sorted(set(before) | set(after)):
+        if path in external_paths:
+            continue
         before_text = before.get(path, "")
         after_text = after.get(path, "")
         if before_text == after_text:
@@ -107,6 +136,9 @@ def get_git_diff(repo: Path) -> str | None:
     )
     if untracked.returncode == 0:
         for path in [line.strip() for line in untracked.stdout.splitlines() if line.strip()]:
+            candidate = repo / path
+            if candidate.is_symlink() and not _is_within_root(candidate, WORKSPACE_ROOT_PATH):
+                continue
             file_diff = subprocess.run(
                 ["git", "-C", str(repo), "diff", "--no-index", "--", "/dev/null", path],
                 capture_output=True,

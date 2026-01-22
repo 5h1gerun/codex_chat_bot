@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ class ChannelState:
     history: Deque[tuple[str, str]]
     enabled_until: datetime | None
     auto_verify: bool
+    queue_lock: asyncio.Lock
+    pending_requests: int
 
 
 channel_state: dict[int, ChannelState] = {}
@@ -36,6 +39,8 @@ def get_state(channel_id: int) -> ChannelState:
             history=deque(maxlen=MAX_HISTORY_TURNS),
             enabled_until=None,
             auto_verify=AUTO_VERIFY_DEFAULT,
+            queue_lock=asyncio.Lock(),
+            pending_requests=0,
         )
         channel_state[channel_id] = state
     return state
