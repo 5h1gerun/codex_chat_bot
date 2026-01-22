@@ -1,0 +1,33 @@
+flowchart TB
+    user[Discordユーザー] --> discord[Discord]
+    discord --> bot[Discord Bot<br/>bot.py]
+
+    config[(.env)] --> cfg[設定読込<br/>config.py]
+    cfg --> bot
+    cfg --> state
+    cfg --> runner
+    cfg --> diff
+    cfg --> verify
+    cfg --> webhook
+    cfg --> formatting
+
+    bot --> state[状態管理/履歴/制御<br/>state.py]
+    bot --> ui[Repo選択UI<br/>ui.py]
+    ui --> state
+    state --> workspace[(WORKSPACE_ROOT<br/>workspaces/)]
+
+    bot --> formatting[整形/分割/添付<br/>formatting.py]
+
+    bot --> runner[Codex実行<br/>codex_runner.py]
+    runner --> codex[Codex CLI]
+    codex --> repo[作業リポジトリ]
+
+    bot --> diff[差分取得/要約<br/>diff_utils.py]
+    diff --> repo
+    diff --> git[git]
+
+    bot --> verify[自動検証<br/>verify.py]
+    verify --> repo
+
+    bot --> webhook[Webhook通知<br/>webhook.py]
+    webhook --> discord
